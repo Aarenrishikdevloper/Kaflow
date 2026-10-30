@@ -8,26 +8,32 @@
 #include <exception>
 #include <iostream>
 #include <netinet/in.h>
+#include <stdexcept>
 #include <sys/socket.h>
 #include <unistd.h> 
 #include <vector>
 #include "../protocol/frame.hpp" 
-#include "../protocol/byte_reader.hpp"
+#include "../protocol/request_header.hpp" 
+#include "../handler/api_version.hpp"
 //the backlog is the queue size  for connection waiting to be accepted
 namespace  {
    constexpr int KListenbacklog = 128;   
-   //print the basic fields commom to the beggining of many kafka request 
-   void log_request_header(const frame&frame){
-    //the first 8 bytes payload contain: 
-    //2 bytes api key 2 bytes api version  4 bytes correlation id 
-    ByteReader reader(frame.payload); 
-    //read the api key and api version 
-    const std::int16_t api_key = reader.read_int16(); 
-    const std::int16_t api_version = reader.read_int16(); 
-    const std::int32_t correlation_id = reader.read_int32();   
-    //print the log for debuffing 
-    std::cout<< "Kafka request: " << "api_key="<< api_key << ", api_version"<<api_version << ", correlation_id="<<correlation_id<< ", payload_bytes="<<frame.payload.size() << '\n';
-
+   //sent every byte in a response handling partial sent 
+   bool sent_all(int client_fd, const std::vector<std::byte>&bytes){
+      //track how maany bytes has already been sent 
+      std::size_t sent_total =0;  
+      while (sent_total < bytes.size()) {
+        const auto bytes_sent = ::send(client_fd, bytes.data() + sent_total, bytes.size()+sent_total,MSG_NOSIGNAL); 
+        if(bytes_sent > 0){
+          sent_total += static_cast<std::size_t>(bytes_sent); 
+          continue;
+        } 
+        if(bytes_sent == -1 && errno == EINTR){
+          continue;
+        } 
+        return false;
+      } 
+      return true;
    }
 }   
 //constructor  
@@ -41,7 +47,8 @@ void TcpServer::start(){
         std::perror("socket"); 
         //terminate the prog 
         std::exit(EXIT_FAILURE);
-    } 
+    }  
+    bool protcol_error = false;
     //enable reuse of the local address so restarting server is easier  
     int reuse_address = 1; 
     if(::setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &reuse_address, sizeof(reuse_address)) == -1){
@@ -109,15 +116,29 @@ void TcpServer::start(){
                    if(!frame.has_value()){
                      break;
                    } 
-                   log_request_header(*frame);       
+                   const Requestheader request = Requestheader::parse(frame->payload); 
+                   if(request.api_key != 18){
+                     std::invalid_argument("Unsupported api Key");  
+                   }  
+                   //construct a leght prefix APIVersion response 
+                   const auto response =  handle_api_version(request);   
+                   if(!sent_all(client_fd,response)){
+                      std::cerr << "Failed to send response \n"; 
+                      protcol_error = true; 
+                      break;
+                   }
                    recive_buffer.erase(recive_buffer.begin(), recive_buffer.begin() + static_cast<std::vector<std::byte>::difference_type>(consumed));    
 
                    
                 } catch (const std::exception & error) {
-                   std::cout <<error.what(); 
+                   std::cout <<error.what();  
+                   protcol_error = true;
                    break;
                 }
                
+             } 
+             if(protcol_error == true){
+               break;
              }
               continue;
 
@@ -126,7 +147,7 @@ void TcpServer::start(){
           if(bytes_recived == 0){
             std::cout << "Cleint disconnect"; 
             break;
-          }   
+          }    
           //EINTR mens interrrupt continue 
            if(errno == EINTR){
             continue;
