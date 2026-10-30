@@ -4,7 +4,6 @@
 #include "api_registry.hpp"
 #include "api_version.hpp"
 #include <cstddef>
-#include <iostream>
 #include <stdexcept>
 #include <vector>
 std::vector<std::byte>RequestDispacther::dispatch(const std::vector<std::byte> &payload) const{
