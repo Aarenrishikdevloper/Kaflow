@@ -7,9 +7,11 @@
 #include <cstdlib>
 #include <exception>
 #include <iostream>
+#include <mutex>
 #include <netinet/in.h>
-#include <stdexcept>
+#include <string>
 #include <sys/socket.h>
+#include <thread>
 #include <unistd.h> 
 #include <vector>
 #include "../protocol/frame.hpp" 
@@ -18,6 +20,18 @@
 //the backlog is the queue size  for connection waiting to be accepted
 namespace  {
    constexpr int KListenbacklog = 128;   
+   constexpr std::size_t kreciveBufferSize = 4096;   
+   //protect cosole output shared by mutiple client coutputs 
+
+   std::mutex log_mutext;   
+   //pritn a message  
+   void log_message(const std::string & message){
+      //lock the mutex 
+      const std::lock_guard<std::mutex>lock(log_mutext); 
+      //log the message 
+      std::cout << message << '\n';
+   }
+   
    //sent every byte in a response handling partial sent 
    bool sent_all(int client_fd, const std::vector<std::byte>&bytes){
       //track how maany bytes has already been sent 
@@ -34,6 +48,79 @@ namespace  {
         return false;
       } 
       return true;
+   } 
+   void handle_clinet(int client_fd){
+      //each client has its own request dispatcher 
+      const RequestDispacther dispathcer; 
+      //each client has its own recive buffer 
+      std::vector<std::byte>recive_buffer; 
+      //temporary storage for incoming socket bytes 
+      std::byte buffer[kreciveBufferSize]; 
+      //track protocol error for this client only 
+      bool protocol_error = false; 
+      //announc the connection 
+      log_message("Client Connected"); 
+      //continue processing until theis client disocnnect or false 
+      while (true) {
+         //recieve bytes from the particular client 
+         const auto bytes_recived = ::recv(client_fd, buffer, sizeof(buffer),0); 
+         //a positive result means bytes were recived 
+         if(bytes_recived > 0){
+            //convert the byte count to the vector size type 
+            const auto count = static_cast<std::size_t>(bytes_recived); 
+            //append recive bytes to the clints buffer 
+            recive_buffer.insert(recive_buffer.end(), buffer, buffer + count); 
+            while (!recive_buffer.empty()) {
+               //the parser reports many bytes from the frame 
+               std::size_t consumed =0; 
+               try {
+                    //attempt  to parse one complete kafak frame 
+                    const auto frame = FrameParser::parse_one(recive_buffer, consumed); 
+                    if(!frame.has_value()){
+                      break;
+                    } 
+                    //dispatch the request to its api 
+                    const auto response = dispathcer.dispatch(frame->payload);  
+                    if(!sent_all( client_fd, response)){
+                         protocol_error = true; 
+                         break;
+                    }    
+                    //convert the consume into iterator type  
+                    using DiffrenceType = std::vector<std::byte>::difference_type;     
+                    //remove the process frme from the recived buffer 
+                    recive_buffer.erase(recive_buffer.begin(), recive_buffer.begin() + static_cast<DiffrenceType>(consumed)); 
+
+                     
+               } catch (const std::exception error) {
+                 log_message(std::string("Protocol error ") + error.what());  
+                 protocol_error = true; 
+                 break;
+               }
+            }  
+            if(protocol_error){
+               break;
+            } 
+            continue;
+         } 
+         if(bytes_recived == 0){
+            log_message("Client disconnected"); 
+            break;
+         } 
+         if(errno == EINTR){
+            continue;
+         } 
+         log_message("Cleint socke error"); 
+         break;
+      } 
+      ::close(client_fd); 
+      log_message("Cleint Conenction Close");
+   } 
+   void start_client(int client_fd, std::vector<std::thread>&client_thread){
+      //create a new thread that own this client connection 
+      client_thread.emplace_back([client_fd](){
+         //process the request until client disconnects 
+         handle_clinet(client_fd);
+      });
    }
 }   
 //constructor  
@@ -76,7 +163,9 @@ void TcpServer::start(){
         std::perror("listen"); 
         std::exit(EXIT_FAILURE);
     } 
-    std::cout << "Server runing. \n"; 
+    log_message("Kaflow Server runing"); 
+    //store all client thread so they can be joinable 
+    std::vector<std::thread> client_threads;
     //keep acceptoing clients untill an unrecoverable accepts errors occurs 
     while (true) {
       //wait for client to connect 
@@ -90,77 +179,29 @@ void TcpServer::start(){
          //any other error as accept error 
          std::perror("accept"); 
          break;
-       }     
-       const RequestDispacther dispatcher;
-       std::cout << "Client Connected \n"; 
-       //allocate a tempoaray buffer to hold bytes  recived form client   
-       std::vector<std::byte> recive_buffer; 
+       }      
+       try {
+           start_client(client_fd,client_threads);     
 
-       std::byte buffer[4096]; 
-       //keep reading from client   
-       while (true) {
-          //recive up the buffer form the client 
-          const auto bytes_recived = ::recv(client_fd, buffer, sizeof(buffer),0);  
-          //a positive return value means the many bytes  were recived 
-          if(bytes_recived > 0){
-             std::cout << bytes_recived  << "\n";       
-             const auto count = static_cast<std::size_t>(bytes_recived);   
-             recive_buffer.insert(
-                recive_buffer.end(), 
-                buffer, 
-                buffer +count
-             );   
-             while (!recive_buffer.empty()) { 
-                std::size_t consumed =0; 
-                try {
-                   const auto frame = FrameParser::parse_one(recive_buffer, consumed); 
-                   if(!frame.has_value()){
-                     break;
-                   } 
-                  
-                   //Dispatch the request to its correponding api handler
-                    const auto response = dispatcher.dispatch(frame->payload);
-                   if(!sent_all(client_fd,response)){
-                      std::cerr << "Failed to send response \n"; 
-                      protcol_error = true; 
-                      break;
-                   }
-                   recive_buffer.erase(recive_buffer.begin(), recive_buffer.begin() + static_cast<std::vector<std::byte>::difference_type>(consumed));    
-
-                   
-                } catch (const std::exception & error) {
-                   std::cout <<error.what();  
-                   protcol_error = true;
-                   break;
-                }
-               
-             } 
-             if(protcol_error == true){
-               break;
-             }
-              continue;
-
-          }       
-          //value  0  means disconnect 
-          if(bytes_recived == 0){
-            std::cout << "Cleint disconnect"; 
-            break;
-          }    
-          //EINTR mens interrrupt continue 
-           if(errno == EINTR){
-            continue;
-           }  
-           //for other error  
-           std::perror("recv"); 
-           break;
-
-       } 
-       //close the client socket  
-       ::close(client_fd); 
-
-    }  
+       } catch (const std::exception & e) {
+           log_message(std::string("Could not satrt client thread") + e.what()); 
+           //close the client connection 
+           ::close(client_fd);
+       }
+       
+    }
     //close the server 
-    ::close(server_fd);
+    ::close(server_fd); 
+    //wait for every client thread to finish 
+    for(std::thread &client_thread:client_threads){
+      //join threads that are joinble 
+      if(client_thread.joinable()){
+         client_thread.join();
+      }
+    } 
+    //repoty server has stoped 
+    log_message("Kaflow server  stopped");
+
 
 
 }
