@@ -13,8 +13,8 @@
 #include <unistd.h> 
 #include <vector>
 #include "../protocol/frame.hpp" 
-#include "../protocol/request_header.hpp" 
-#include "../handler/api_version.hpp"
+
+#include "../handler/request_dispatcher.hpp"
 //the backlog is the queue size  for connection waiting to be accepted
 namespace  {
    constexpr int KListenbacklog = 128;   
@@ -90,7 +90,8 @@ void TcpServer::start(){
          //any other error as accept error 
          std::perror("accept"); 
          break;
-       }    
+       }     
+       const RequestDispacther dispatcher;
        std::cout << "Client Connected \n"; 
        //allocate a tempoaray buffer to hold bytes  recived form client   
        std::vector<std::byte> recive_buffer; 
@@ -116,12 +117,9 @@ void TcpServer::start(){
                    if(!frame.has_value()){
                      break;
                    } 
-                   const Requestheader request = Requestheader::parse(frame->payload); 
-                   if(request.api_key != 18){
-                     std::invalid_argument("Unsupported api Key");  
-                   }  
-                   //construct a leght prefix APIVersion response 
-                   const auto response =  handle_api_version(request);   
+                  
+                   //Dispatch the request to its correponding api handler
+                    const auto response = dispatcher.dispatch(frame->payload);
                    if(!sent_all(client_fd,response)){
                       std::cerr << "Failed to send response \n"; 
                       protcol_error = true; 

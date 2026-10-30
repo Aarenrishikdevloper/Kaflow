@@ -5,6 +5,7 @@
 #include <stdexcept>
 #include <vector> 
 #include "../protocol/byte_writer.hpp"
+#include "api_registry.hpp"
 namespace  { 
   //kafka API KEY 18 identifies API Version 
   constexpr std::int16_t kApiVersionKey = 18; 
@@ -29,15 +30,21 @@ namespace  {
     if(!supported){
         body.write_int32(0); 
         return body.data();
-    } 
-    //adverise one APi 
-    body.write_int32(1); 
-    //identify the api 
-    body.write_int16(kApiVersionKey); 
-    //adverise its minium support version 
-    body.write_int16(kMinApiVersions); 
-    //adverise  its max support version 
-    body.write_int16(kMaxVersions);  
+    }  
+
+  const auto&apis = supported_apis();  
+  //write the numbeer of APIS in the response 
+   body.write_int32(static_cast<std::int32_t>(apis.size()));    
+   //serialize the every api entry 
+    for(const auto&api : apis){
+       //write the api Key 
+       body.write_int16(api.api_key); 
+       //write the min supported version 
+       body.write_int16(api.min_version); 
+       //write the max supported versions 
+       body.write_int16(api.max_version); 
+       
+    }
     if(request_version >= 1){
         body.write_int32(0);
     } 
