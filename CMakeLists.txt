@@ -8,4 +8,4 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 file(GLOB_RECURSE SOURCE_FILES src/*.cpp src/*.hpp)
 
-add_executable(kafka ${SOURCE_FILES})
+add_executable(kafka ${SOURCE_FILES})  
