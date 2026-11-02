@@ -1,6 +1,7 @@
 #pragma  once 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 class CompactReader{
@@ -12,7 +13,8 @@ class CompactReader{
      //read an kafka compact string 
      std::string read_compact_string(); 
      //read andignor tag filed 
-     void skipped_tag_filed(); 
+     void skipped_tag_filed();   
+     std::optional<std::string>read_compoact_nullable_string();
      //retunr the current reading 
      [[nodiscard]] std::size_t position() const noexcept; 
      private: 

@@ -3,8 +3,8 @@
 //return the broker supported Api list 
 const std::vector<APIversionInfo>&supported_apis(){
     static const std::vector<APIversionInfo> apis = {
-        {18,0,2}
+        {18,0,2,1 , 0}
     };  
     //return the same registry whenver requetsed 
     return apis;
-}
+}   

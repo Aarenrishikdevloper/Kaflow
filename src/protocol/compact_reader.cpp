@@ -1,6 +1,7 @@
 #include "compact_reader.hpp"    
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -86,4 +87,25 @@ void CompactReader::skipped_tag_filed(){
 //returnn the curent poition 
 std::size_t CompactReader::position() const noexcept{
    return postion_;
+}  
+std::optional<std::string>CompactReader::read_compoact_nullable_string(){
+   //read the ecoded string lengh 
+   const std::uint32_t encoded_lenght  = read_uninsned_varint(); 
+   if(encoded_lenght == 0){
+      return std::nullopt;
+   }  
+   //decode the actual string length 
+   const std::uint32_t sring_lenght = encoded_lenght - 1; 
+   //echeck tjat enough byte emsins 
+   if(sring_lenght > data_.size() - postion_){
+      throw std::runtime_error("Compact nullable string excceedes request size");
+   } 
+   std::string result; 
+   result.reserve(sring_lenght); 
+   //read each character 
+   for(std::uint32_t i =0; i <sring_lenght; ++i){
+      const char chracter = static_cast<char>(read_byte()); 
+      result.push_back(chracter);
+   } 
+   return result;
 }
