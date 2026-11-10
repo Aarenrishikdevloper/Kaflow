@@ -1,4 +1,5 @@
 #include "compact_reader.hpp"    
+#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -108,4 +109,43 @@ std::optional<std::string>CompactReader::read_compoact_nullable_string(){
       result.push_back(chracter);
    } 
    return result;
+}  
+std::int32_t CompactReader::read_int32(){
+   //start with an empty unisnned integer 
+   std::uint32_t result =0; 
+   //read four bytes  in  network (big endian) order 
+   for(int i =0; i <4; i++){
+      const std::uint8_t byte = read_byte();  
+      //shift previous bytes left and append  the byte 
+      result = (result << 8) | byte;
+      
+   } 
+   //preserve the signed nit pattern 
+   return std::bit_cast<std::int32_t>(result);
+}  
+bool CompactReader::read_boolean(){
+   //resd one byte 
+   const std::uint8_t value = read_byte(); 
+   //kafka boolean must be 0 or 1   
+   if(value > 1){
+      throw std::runtime_error("Invalid Kafka Boolean");
+   } 
+   //zero means false one means true 
+  return  value == 1;
+
+}       
+//read a compact array length 
+std::optional<std::uint32_t>CompactReader::read_compact_array_lenght(){
+   const std::uint32_t encoded_lenght = read_uninsned_varint(); 
+   if(encoded_lenght == 0){
+      return std::nullopt;
+   } 
+   return encoded_lenght - 1;
+}  
+std::uint8_t CompactReader::read_uint8(){
+   if(postion_ >= data_.size()){
+      throw std::runtime_error("Unexpected end of buffer"); 
+     
+   } 
+    return  static_cast<std::uint8_t>(data_[postion_ ++]);
 }

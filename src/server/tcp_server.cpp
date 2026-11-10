@@ -37,7 +37,7 @@ namespace  {
       //track how maany bytes has already been sent 
       std::size_t sent_total =0;  
       while (sent_total < bytes.size()) {
-        const auto bytes_sent = ::send(client_fd, bytes.data() + sent_total, bytes.size()+sent_total,MSG_NOSIGNAL); 
+        const auto bytes_sent = ::send(client_fd, bytes.data() + sent_total, bytes.size() -sent_total,MSG_NOSIGNAL); 
         if(bytes_sent > 0){
           sent_total += static_cast<std::size_t>(bytes_sent); 
           continue;
@@ -91,7 +91,7 @@ namespace  {
                     recive_buffer.erase(recive_buffer.begin(), recive_buffer.begin() + static_cast<DiffrenceType>(consumed)); 
 
                      
-               } catch (const std::exception error) {
+               } catch (const std::exception& error) {
                  log_message(std::string("Protocol error ") + error.what());  
                  protocol_error = true; 
                  break;

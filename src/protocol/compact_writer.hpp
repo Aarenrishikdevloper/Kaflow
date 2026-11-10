@@ -12,7 +12,13 @@ class CompacrWriter{
     //write an empty tagged-field solution 
     void write_emty_tagged_field(); 
     //return the encoded bytes 
-    const std::vector<std::byte>& data()const noexcept; 
+    const std::vector<std::byte>& data()const noexcept;     
+    void write_int16(std::int16_t value); 
+    void write_int32(std::int32_t value);  
+    void wriet_compoact_arraylenght(std::uint32_t count); 
+    void write_bytes(std::vector<std::byte>&bytes);
+    void Write_booleand(bool value); 
+    void write_null_comapct_array();
     private: 
       //hold the encoded protocol data 
       std::vector<std::byte> data_; 

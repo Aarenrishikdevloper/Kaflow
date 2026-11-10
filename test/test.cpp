@@ -1,40 +1,77 @@
-#include "../src/protocol/compact_reader.hpp"
-#include "../src/protocol/compact_writer.hpp"
+#include "../src/metadata/topic_manager.hpp"
+#include "metadata/topic.hpp"
 
-#include <cstdio>
-#include <iostream>
-#include <string>
-#include <vector>
+void seed_test_topics() {
 
-int main()
-{
-    // Create a compact writer.
-    CompacrWriter writer;
+    // -------------------------
+    // Topic: orders
+    // -------------------------
 
-    // Encode the string "cat".
-    writer.write_compact_string("cat");
+    TopicMetadata orders;
+    orders.name = "orders";
+    orders.topic_id[0] = std::byte{1};
 
-    // Print every encoded byte in hexadecimal.
-    for (std::byte value : writer.data()) {
-        std::printf(
-            "%02X ",
-            std::to_integer<unsigned int>(value)
-        );
+    for (std::int32_t i = 0; i < 3; ++i) {
+
+        partionMetadata partition;
+
+        partition.partion_index = i;
+        partition.leader_id = 1;
+        partition.leader_epoch = 0;
+
+        partition.replica_node = {1};
+        partition.isr_nodes = {1};
+
+        orders.partitions.push_back(partition);
     }
 
-    std::printf("\n");
+    topic_manager().add_topic(std::move(orders));
 
-    // Copy the encoded bytes into a request buffer.
-    const std::vector<std::byte> encoded = writer.data();
+    // -------------------------
+    // Topic: payments
+    // -------------------------
 
-    // Create a reader for those bytes.
-    CompactReader reader(encoded);
+    TopicMetadata payments;
+    payments.name = "payments";
+    payments.topic_id[0] = std::byte{2};
 
-    // Decode the compact string.
-    const std::string decoded = reader.read_compact_string();
+    for (std::int32_t i = 0; i < 2; ++i) {
 
-    // Print the decoded value.
-    std::cout << "Decoded: " << decoded << '\n';
+        partionMetadata partition;
 
-    return 0;
+        partition.partion_index= i;
+        partition.leader_id = 1;
+        partition.leader_epoch = 0;
+        
+        partition.replica_node = {1};
+        partition.isr_nodes = {1};
+
+        payments.partitions.push_back(partition);
+    }
+
+    topic_manager().add_topic(std::move(payments));
+
+    // -------------------------
+    // Topic: users
+    // -------------------------
+
+    TopicMetadata users;
+    users.name = "users";
+    users.topic_id[0] = std::byte{3};
+
+    for (std::int32_t i = 0; i < 2; ++i) {
+
+        partionMetadata partition;
+
+        partition.partion_index = i;
+        partition.leader_id = 1;
+        partition.leader_epoch = 0;
+
+        partition.replica_node = {1};
+        partition.isr_nodes = {1};
+
+        users.partitions.push_back(partition);
+    }
+
+    topic_manager().add_topic(std::move(users));
 }

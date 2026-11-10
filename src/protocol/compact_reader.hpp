@@ -14,7 +14,13 @@ class CompactReader{
      std::string read_compact_string(); 
      //read andignor tag filed 
      void skipped_tag_filed();   
-     std::optional<std::string>read_compoact_nullable_string();
+     std::optional<std::string>read_compoact_nullable_string(); 
+     //read a signed 32 bit endian integer  
+     std::int32_t read_int32();  
+     //read a kafaka boolean 
+     bool read_boolean(); 
+     std::optional<std::uint32_t>read_compact_array_lenght();   
+     std::uint8_t read_uint8();
      //retunr the current reading 
      [[nodiscard]] std::size_t position() const noexcept; 
      private: 

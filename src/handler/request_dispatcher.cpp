@@ -7,7 +7,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <stdexcept>
-#include <vector>
+#include <vector> 
+#include "describre_topic_partion.hpp"
 std::vector<std::byte>RequestDispacther::dispatch(const std::vector<std::byte> &payload) const{  
     //red the first four bytes 
     ByteReader intial_reader(payload); 
@@ -44,7 +45,8 @@ std::vector<std::byte>RequestDispacther::dispatch(const std::vector<std::byte> &
      return handle_api_version(header);
    } 
    if(api_key == 75){
-      throw  std::runtime_error("unsupported api");
+      const DescribeTopicPartionRequest request  = DescribeTopicPartionRequest::parse(request_body);   
+      return  handle_description_topic_partions(header.correlation_id, request);
    }  
 throw std::runtime_error("no handler registered for this api");
 }
