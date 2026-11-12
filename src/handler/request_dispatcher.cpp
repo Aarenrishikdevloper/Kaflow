@@ -9,6 +9,7 @@
 #include <stdexcept>
 #include <vector> 
 #include "describre_topic_partion.hpp"
+#include "metadata/metadata.hpp"
 std::vector<std::byte>RequestDispacther::dispatch(const std::vector<std::byte> &payload) const{  
     //red the first four bytes 
     ByteReader intial_reader(payload); 
@@ -47,6 +48,9 @@ std::vector<std::byte>RequestDispacther::dispatch(const std::vector<std::byte> &
    if(api_key == 75){
       const DescribeTopicPartionRequest request  = DescribeTopicPartionRequest::parse(request_body);   
       return  handle_description_topic_partions(header.correlation_id, request);
-   }  
+   }   
+   if(api_key == 3){
+    return  handle_metadata(header, request_body);
+   }
 throw std::runtime_error("no handler registered for this api");
 }
