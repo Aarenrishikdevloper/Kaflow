@@ -1,10 +1,13 @@
 #include "utils.hpp"     
 #include "metadata/topic.hpp"
+#include "protocol/byte_reader.hpp"
 #include "protocol/compact_writer.hpp"
 #include <array>
 #include <cstddef>
 #include <limits>
 #include <optional>
+#include <stdexcept>
+#include <string>
 #include <vector>
 const APIversionInfo*find_api(std::int16_t api_key){
     //search through the supported api 
@@ -98,4 +101,78 @@ void write_next_curosr(const std::optional<DescribeTopicCursor>&curosor, Compacr
         writer.write_int32(curosor->partition_index); 
         writer.write_emty_tagged_field();
     }
-}
+}  
+//legacy kafka helper 
+//read a kafka string 
+   std::string read_string(ByteReader& reader){
+    const std::int16_t lenght  = reader.read_int16(); 
+    if(lenght < 0){
+        throw std::invalid_argument("Unexpected null kafka String");
+    } 
+    //read exactly the no of bytes decalred 
+    const std::vector<std::byte>bytes = reader.read_bytes(static_cast<std::size_t>(lenght)); 
+    std::string value; 
+    value.reserve(bytes.size()); 
+    for (const std::byte byte : bytes) {  
+        value.push_back(static_cast<char>(std::to_integer<unsigned char>(byte)));
+    
+    } 
+    return value;
+   }
+   std::optional<std::string>read_nullable_string(ByteReader &reader){
+    const std::int16_t lenght = reader.read_int16(); 
+    //-1 represntation null 
+    if(lenght == -1){
+        return std::nullopt;
+    } 
+    //other negative lenght are invalid 
+    if(lenght < 1){
+        throw std::invalid_argument("Invalid nullable kafka String length");
+    }  
+    //read the string bytes 
+    const std::vector<std::byte>bytes = reader.read_bytes(static_cast<std::size_t>(lenght));   
+    //convert byte to cpp string 
+    std::string value; 
+    value.reserve(bytes.size()); 
+    for (const std::byte byte : bytes) {
+      value.push_back(static_cast<char>(std::to_integer<unsigned char>(byte)));
+    } 
+    return value;
+} 
+//read a regular kafka array 
+std::int32_t read_array_length(ByteReader& reader){
+    //regular kafka array use int32 lenghts 
+    const std::int32_t count = reader.read_int32(); 
+    //these array are not nullable in current schema  
+    if(count < 0 || count > 1000000){
+        throw std::invalid_argument("invalid kafka array lenght");
+    } 
+    return count;
+} 
+void Write_string(ByteWriter&writer, const std::string& value){
+    if(value.size() > static_cast<std::size_t>(std::numeric_limits<std::int16_t>::max())){
+        throw std::length_error("Kafka String is too long");
+    } 
+    writer.write_int16(static_cast<std::int16_t>(value.size())); 
+    //convert chracters to bytes 
+    std::vector<std::byte>bytes; 
+    bytes.reserve(value.size()); 
+    for(const unsigned char chracter :value){
+        bytes.push_back(static_cast<std::byte>(chracter));
+    } 
+    writer.Write_bytes(bytes);
+} 
+ //add the four byte lenght prefix to aresponse load 
+std::vector<std::byte>add_frame(const std::vector<std::byte>& payload){
+      if(payload.size() > static_cast<std::size_t>(std::numeric_limits<std::int32_t>::max())){
+         throw std::length_error("Kafka error is too large");
+      }  
+      //create a write for the final frmae response   
+      ByteWriter frame; 
+       //write the payload length 
+       frame.write_int32(static_cast<std::int32_t>(payload.size()));  
+       //write the payload 
+       frame.Write_bytes(payload);
+       //append the complete frame 
+       return frame.data();
+    }

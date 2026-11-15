@@ -11,7 +11,8 @@
 #include <string>
 #include <utility>
 #include <vector> 
-#include "metadata.hpp"
+#include "metadata.hpp" 
+#include "utils/utils.hpp"
 namespace  {
    constexpr std::int32_t kBrokerId = 1; 
    constexpr std::int32_t kBrokerPort = 9092;  
@@ -20,23 +21,8 @@ namespace  {
    constexpr std::int32_t kNoerror = 0; 
    constexpr std::int32_t kUnknownTopicsOrpartion =3; 
 
-   //legacy kafka helper 
-   //write a kafka string 
-   void Write_string(ByteWriter&writer, const std::string&value){
-     if(value.size() > static_cast<std::size_t>(std::numeric_limits<std::int16_t>::max())){
-        throw std::length_error("kafka string is too long");
-     } 
-     //write the number of bytes not the no of characters 
-     writer.write_int16(static_cast<std::int16_t>(value.size()));  
-     //convert the string bytes into std::byte vector 
-     std::vector<std::byte> bytes; 
-     bytes.reserve(value.size()); 
-     for(unsigned char chracter :value){
-       bytes.push_back(static_cast<std::byte>(chracter));  
-     }  
-     //append the acual string bytes
-     writer.Write_bytes(bytes);
-   }  
+
+ 
    //write an array of broker mode ids 
    void write_node_array(ByteWriter&writer, const std::vector<std::int32_t>&nodes){
       //check that the element count fits an int32  
@@ -108,20 +94,7 @@ namespace  {
       writer.write_int32(0);
 
     } 
-    //add the four byte lenght prefix to aresponse load 
-    std::vector<std::byte>add_frame(const std::vector<std::byte>& payload){
-      if(payload.size() > static_cast<std::size_t>(std::numeric_limits<std::int32_t>::max())){
-         throw std::length_error("Kafka error is too large");
-      }  
-      //create a write for the final frmae response   
-      ByteWriter frame; 
-       //write the payload length 
-       frame.write_int32(static_cast<std::int32_t>(payload.size()));  
-       //write the payload 
-       frame.Write_bytes(payload);
-       //append the complete frame 
-       return frame.data();
-    }
+   
 } //namepsace ends 
 MetaDataRequest MetaDataRequest::parse(const std::vector<std::byte> &body){
    //create a reader over request body 

@@ -4,19 +4,17 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
-void TopicManager::add_topic(TopicMetadata topic){
-    //lock the metadata before modyfying 
-    std::lock_guard<std::mutex>lock(mutext_); 
-    //save the topic name 
-    const std::string name = topic.name; 
-    //insert the topic 
-    const auto[iterator, inserted]  = topics_.emplace(name, std::move(topic));   
-    //do not replace an existing topic
-    if(!inserted){
-      throw std::runtime_error("Topics already exist");
-    }
-}  
+bool TopicManager::try_and_topic(TopicMetadata topic){
+  //lock the mutext 
+  std::lock_guard<std::mutex>lock(mutext_);  
+  //try to insert the topics using its name as key  
+  const auto [iterator, inserted] = topics_.emplace(topic.name, std::move(topic));   
+  //retunr whether the iteraor suceded 
+  return inserted;
+
+}
 //fina a topic by name 
 std::optional<TopicMetadata> TopicManager::find_topic(const std::string &topic_name) const{
   //loc the mutex 

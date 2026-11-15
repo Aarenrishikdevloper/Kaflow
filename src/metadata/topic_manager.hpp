@@ -8,7 +8,7 @@
 class TopicManager{
     public:  
       //add a topic to the broker 
-      void add_topic(TopicMetadata topic); 
+      bool try_and_topic(TopicMetadata topic);
       //find a topic by name 
       std::optional<TopicMetadata> find_topic(const std::string&topic_name) const;   
       //returns a snapshot conatining all known topics 
