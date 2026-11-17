@@ -12,7 +12,9 @@ class TopicManager{
       //find a topic by name 
       std::optional<TopicMetadata> find_topic(const std::string&topic_name) const;   
       //returns a snapshot conatining all known topics 
-      std::vector<TopicMetadata> list_topics()const;
+      std::vector<TopicMetadata> list_topics()const;    
+      //delete topic 
+      bool remove_topic(const std::string&name);
       private: 
         //protect shared topic metadata across client thread 
         mutable std::mutex  mutext_;  

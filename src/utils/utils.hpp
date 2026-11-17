@@ -20,4 +20,5 @@ std::int32_t read_array_length(ByteReader& reader);
 void Write_string(ByteWriter&writer, const std::string&value); 
 std::optional<std::string>read_nullable_string(ByteReader &reader); 
 void write_string(ByteWriter&writer, const std::string& value); 
-std::vector<std::byte> add_frame(const std::vector<std::byte>& payload);   
+std::vector<std::byte> add_frame(const std::vector<std::byte>& payload);    
+ 

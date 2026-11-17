@@ -6,7 +6,8 @@ const std::vector<APIversionInfo>&supported_apis(){
         {18,0,2,1 , 0},  
         {75,0,0,2,1}, 
         {3,0, 0,1,0},  
-        {19,0,0,1,0}
+        {19,0,0,1,0}, 
+        {20,0,0,1,0},
     };  
     //return the same registry whenver requetsed 
     return apis;

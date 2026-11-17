@@ -40,6 +40,12 @@ std::vector<TopicMetadata> TopicManager::list_topics() const{
        result.push_back(topic_metadata);
   } 
   return result;
+}   
+bool TopicManager::remove_topic(const std::string &name){
+  //lock mutex 
+  std::lock_guard<std::mutex>lock(mutext_); 
+  //in memory deletion 
+  return topics_.erase(name) >0;
 }
 //return the shared topic manager 
 TopicManager& topic_manager(){

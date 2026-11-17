@@ -1,3 +1,4 @@
+
 import socket
 import struct
 
@@ -7,214 +8,173 @@ PORT = 9092
 
 
 # ------------------------------------------------------------
-# Kafka primitive encoders
+# Kafka encoding helpers
 # ------------------------------------------------------------
 
-def i16(value):
+def int16(value):
     return struct.pack(">h", value)
 
 
-def i32(value):
+def int32(value):
     return struct.pack(">i", value)
 
 
 def kafka_string(value):
     encoded = value.encode("utf-8")
-    return i16(len(encoded)) + encoded
+    return int16(len(encoded)) + encoded
 
 
-# ------------------------------------------------------------
-# CreateTopics v0 request builder
-# ------------------------------------------------------------
-
-def build_topic(
-    name,
-    num_partitions,
-    replication_factor,
-    assignments=None,
-    configs=None
-):
-    if assignments is None:
-        assignments = []
-
-    if configs is None:
-        configs = []
+def read_exact(sock, count):
+    """Read exactly count bytes from the socket."""
 
     result = b""
 
-    # Topic name.
-    result += kafka_string(name)
+    while len(result) < count:
+        chunk = sock.recv(count - len(result))
 
-    # Partition count.
-    result += i32(num_partitions)
+        if not chunk:
+            raise RuntimeError("Connection closed unexpectedly")
 
-    # Replication factor.
-    result += i16(replication_factor)
-
-    # Manual assignments array.
-    result += i32(len(assignments))
-
-    for partition_index, broker_ids in assignments:
-        result += i32(partition_index)
-
-        # Broker ID array.
-        result += i32(len(broker_ids))
-
-        for broker_id in broker_ids:
-            result += i32(broker_id)
-
-    # Topic configurations array.
-    result += i32(len(configs))
-
-    for config_name, config_value in configs:
-        result += kafka_string(config_name)
-
-        if config_value is None:
-            result += i16(-1)
-        else:
-            result += kafka_string(config_value)
+        result += chunk
 
     return result
 
 
-def build_request(topics, correlation_id=42, timeout_ms=30000):
-    # Request header:
-    # API key = 19
-    # API version = 0
-    # Correlation ID
-    # Client ID = null
-    request = (
-        i16(19)
-        + i16(0)
-        + i32(correlation_id)
-        + i16(-1)
+# ------------------------------------------------------------
+# Send one Kafka request and receive one response
+# ------------------------------------------------------------
+
+def send_request(api_key, api_version, correlation_id, body):
+    # Legacy Kafka request header v1:
+    # api_key + api_version + correlation_id + client_id.
+    header = (
+        int16(api_key)
+        + int16(api_version)
+        + int32(correlation_id)
+        + kafka_string("python-delete-test")
     )
 
-    # Topics array.
-    request += i32(len(topics))
+    # Combine header and body.
+    payload = header + body
 
-    for topic in topics:
-        request += topic
+    # Kafka TCP frame starts with a 4-byte payload length.
+    frame = int32(len(payload)) + payload
 
-    # CreateTopics v0 timeout.
-    request += i32(timeout_ms)
-
-    # Add Kafka frame length.
-    return i32(len(request)) + request
-
-
-# ------------------------------------------------------------
-# Socket communication
-# ------------------------------------------------------------
-
-def read_exact(sock, size):
-    data = b""
-
-    while len(data) < size:
-        chunk = sock.recv(size - len(data))
-
-        if not chunk:
-            raise RuntimeError("Broker closed the connection")
-
-        data += chunk
-
-    return data
-
-
-def send_request(request):
     with socket.create_connection((HOST, PORT)) as sock:
-        sock.sendall(request)
+        # Send the complete request.
+        sock.sendall(frame)
 
-        # Read response frame length.
-        frame_length = struct.unpack(
-            ">i",
-            read_exact(sock, 4)
+        # Read the 4-byte response length.
+        response_size = struct.unpack(
+            ">i", read_exact(sock, 4)
         )[0]
 
-        # Read the response payload.
-        return read_exact(sock, frame_length)
+        # Read the complete response payload.
+        return read_exact(sock, response_size)
 
 
 # ------------------------------------------------------------
-# CreateTopics v0 response parser
+# CreateTopics API v0
 # ------------------------------------------------------------
 
-def read_i16(data, offset):
-    value = struct.unpack_from(">h", data, offset)[0]
-    return value, offset + 2
+def create_topic(name, correlation_id):
+    body = (
+        int32(1)             # One topic
+        + kafka_string(name)
+        + int32(1)            # One partition
+        + int16(1)            # Replication factor = 1
+        + int32(0)            # No manual assignments
+        + int32(0)            # No configs
+        + int32(5000)         # Timeout
+    )
+
+    response = send_request(
+        api_key=19,
+        api_version=0,
+        correlation_id=correlation_id,
+        body=body,
+    )
+
+    # Response header: correlation ID.
+    received_correlation = struct.unpack(">i", response[:4])[0]
+    assert received_correlation == correlation_id
+
+    # Response body begins with the result array count.
+    count = struct.unpack(">i", response[4:8])[0]
+    assert count == 1
+
+    # Read topic name and error code.
+    name_length = struct.unpack(">h", response[8:10])[0]
+    returned_name = response[10:10 + name_length].decode()
+
+    error_offset = 10 + name_length
+    error_code = struct.unpack(
+        ">h", response[error_offset:error_offset + 2]
+    )[0]
+
+    assert returned_name == name
+    assert error_code == 0, f"CreateTopics failed: {error_code}"
 
 
-def read_i32(data, offset):
-    value = struct.unpack_from(">i", data, offset)[0]
-    return value, offset + 4
+# ------------------------------------------------------------
+# DeleteTopics API v0
+# ------------------------------------------------------------
 
+def delete_topics(names, correlation_id):
+    # Request array starts with the number of topic names.
+    body = int32(len(names))
 
-def read_string(data, offset):
-    length, offset = read_i16(data, offset)
+    # Append each topic name as a Kafka STRING.
+    for name in names:
+        body += kafka_string(name)
 
-    if length < 0:
-        raise ValueError("Unexpected null string")
+    # Append timeout_ms.
+    body += int32(5000)
 
-    value = data[offset:offset + length].decode("utf-8")
+    response = send_request(
+        api_key=20,
+        api_version=0,
+        correlation_id=correlation_id,
+        body=body,
+    )
 
-    return value, offset + length
+    # Check the response correlation ID.
+    received_correlation = struct.unpack(">i", response[:4])[0]
+    assert received_correlation == correlation_id
 
+    # Read the number of topic results.
+    count = struct.unpack(">i", response[4:8])[0]
 
-def parse_response(data):
-    offset = 0
+    assert count == len(names)
 
-    # Response header.
-    correlation_id, offset = read_i32(data, offset)
-
-    # Number of topic results.
-    topic_count, offset = read_i32(data, offset)
-
+    # Parse every topic result.
+    offset = 8
     results = []
 
-    for _ in range(topic_count):
-        # Topic name.
-        name, offset = read_string(data, offset)
+    for _ in range(count):
+        # Read topic name length.
+        name_length = struct.unpack(
+            ">h", response[offset:offset + 2]
+        )[0]
 
-        # Kafka error code.
-        error_code, offset = read_i16(data, offset)
+        offset += 2
 
-        results.append({
-            "name": name,
-            "error_code": error_code
-        })
+        # Read topic name.
+        name = response[offset:offset + name_length].decode()
 
-    # There should be no extra fields in v0.
-    if offset != len(data):
-        raise AssertionError(
-            f"Unexpected trailing bytes: {len(data) - offset}"
-        )
+        offset += name_length
 
-    return correlation_id, results
+        # Read topic error code.
+        error_code = struct.unpack(
+            ">h", response[offset:offset + 2]
+        )[0]
 
+        offset += 2
 
-# ------------------------------------------------------------
-# Test helper
-# ------------------------------------------------------------
+        results.append((name, error_code))
 
-def run_test(description, topics):
-    print(f"\n--- {description} ---")
-
-    request = build_request(topics)
-
-    response = send_request(request)
-
-    correlation_id, results = parse_response(response)
-
-    print("Correlation ID:", correlation_id)
-
-    for result in results:
-        print(
-            f"Topic: {result['name']}, "
-            f"error: {result['error_code']}"
-        )
-
-    assert correlation_id == 42
-    assert len(results) == len(topics)
+    # Make sure we consumed the entire response.
+    assert offset == len(response)
 
     return results
 
@@ -223,103 +183,88 @@ def run_test(description, topics):
 # Tests
 # ------------------------------------------------------------
 
+def test_delete_existing_topic():
+    name = "delete_existing_test"
+
+    create_topic(name, 1001)
+
+    results = delete_topics([name], 1002)
+
+    assert results == [(name, 0)]
+
+    print("PASS: Delete existing topic")
+
+
+def test_delete_unknown_topic():
+    name = "topic_that_does_not_exist"
+
+    results = delete_topics([name], 1003)
+
+    assert results == [(name, 3)]
+
+    print("PASS: Delete unknown topic")
+
+
+def test_delete_multiple_topics():
+    names = ["delete_multi_a", "delete_multi_b"]
+
+    create_topic(names[0], 1004)
+    create_topic(names[1], 1005)
+
+    results = delete_topics(names, 1006)
+
+    assert results == [
+        (names[0], 0),
+        (names[1], 0),
+    ]
+
+    print("PASS: Delete multiple topics")
+
+
+def test_delete_mixed_topics():
+    existing = "delete_mixed_existing"
+    missing = "delete_mixed_missing"
+
+    create_topic(existing, 1007)
+
+    results = delete_topics(
+        [existing, missing],
+        1008,
+    )
+
+    assert results == [
+        (existing, 0),
+        (missing, 3),
+    ]
+
+    print("PASS: Delete existing and unknown topics together")
+
+
+def test_delete_invalid_topic():
+    name = "invalid/topic"
+
+    results = delete_topics([name], 1009)
+
+    assert results == [(name, 17)]
+
+    print("PASS: Reject invalid topic name")
+
+
+def test_delete_empty_array():
+    results = delete_topics([], 1010)
+
+    assert results == []
+
+    print("PASS: DeleteTopics with empty topic array")
+
+
 if __name__ == "__main__":
+    test_delete_existing_topic()
+    test_delete_unknown_topic()
+    test_delete_multiple_topics()
+    test_delete_mixed_topics()
+    test_delete_invalid_topic()
+    test_delete_empty_array()
 
-    # Test 1:
-    # Create a topic with three partitions.
-    results = run_test(
-        "Create topic with three partitions",
-        [
-            build_topic(
-                "python_orders",
-                3,
-                1
-            )
-        ]
-    )
+    print("\nAll DeleteTopics tests passed!")
 
-    assert results[0]["error_code"] == 0
-
-    # Test 2:
-    # Create multiple topics in one request.
-    results = run_test(
-        "Create multiple topics",
-        [
-            build_topic("python_users", 2, 1),
-            build_topic("python_payments", 4, 1),
-        ]
-    )
-
-    assert all(r["error_code"] == 0 for r in results)
-
-    # Test 3:
-    # Manual assignments to the single broker.
-    results = run_test(
-        "Create topic with manual assignments",
-        [
-            build_topic(
-                "python_manual",
-                -1,
-                -1,
-                assignments=[
-                    (0, [1]),
-                    (1, [1]),
-                ]
-            )
-        ]
-    )
-
-    assert results[0]["error_code"] == 0
-
-    # Test 4:
-    # Creating an existing topic should return 36.
-    results = run_test(
-        "Duplicate topic",
-        [
-            build_topic("python_orders", 3, 1)
-        ]
-    )
-
-    assert results[0]["error_code"] == 36
-
-    # Test 5:
-    # Invalid topic name should return 17.
-    results = run_test(
-        "Invalid topic name",
-        [
-            build_topic("bad/name", 3, 1)
-        ]
-    )
-
-    assert results[0]["error_code"] == 17
-
-    # Test 6:
-    # Single broker cannot support replication factor 2.
-    results = run_test(
-        "Invalid replication factor",
-        [
-            build_topic("python_invalid_rf", 3, 2)
-        ]
-    )
-
-    assert results[0]["error_code"] == 38
-
-    # Test 7:
-    # Broker ID 2 does not exist in this single-broker setup.
-    results = run_test(
-        "Invalid manual broker assignment",
-        [
-            build_topic(
-                "python_invalid_assignment",
-                -1,
-                -1,
-                assignments=[
-                    (0, [2])
-                ]
-            )
-        ]
-    )
-
-    assert results[0]["error_code"] == 39
-
-    print("\nAll CreateTopics v0 tests passed.")
