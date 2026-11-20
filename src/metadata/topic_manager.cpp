@@ -4,6 +4,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 bool TopicManager::try_and_topic(TopicMetadata topic){
@@ -46,6 +47,22 @@ bool TopicManager::remove_topic(const std::string &name){
   std::lock_guard<std::mutex>lock(mutext_); 
   //in memory deletion 
   return topics_.erase(name) >0;
+} 
+void TopicManager::load_topics(std::vector<TopicMetadata> loades_topics){
+  //build a new map separartly so existing data is not partially repalced 
+  std::unordered_map<std::string, TopicMetadata> new_topics; 
+  //move each loaded topic into tthe new map 
+  for(auto&topic : loades_topics){
+    //reject duplicate topic name 
+    const auto [iterator, inserted] = new_topics.emplace(topic.name, std::move(topic));    
+    if(!inserted){
+      throw std::runtime_error("Duplicated topic name is persisted metadata");
+    }  
+  } 
+  //lock the mutext before replacing 
+  std::lock_guard<std::mutex>lock(mutext_);  
+  //replace all current topics at once 
+  topics_ = std::move(new_topics);
 }
 //return the shared topic manager 
 TopicManager& topic_manager(){

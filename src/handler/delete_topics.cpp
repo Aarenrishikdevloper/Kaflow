@@ -1,14 +1,17 @@
 #include <cstddef>
 #include <cstdint>
+#include <exception>
 #include <stdexcept>
 #include <string> 
 #include <utility>
 #include <vector>
 #include "delete_topics.hpp"
+#include "metadata/topic.hpp"
 #include "metadata/topic_manager.hpp"
 #include "protocol/byte_reader.hpp" 
 #include "protocol/byte_writer.hpp"
-#include "utils/utils.hpp"
+#include "utils/utils.hpp" 
+#include "storage/metadata_store.hpp"
 namespace  { 
     constexpr std::int16_t NONE =0;  
     constexpr std::int16_t  UNKNOWN_TOPIC_OR_PARTION = 3; 
@@ -82,16 +85,28 @@ std::vector<std::byte>handle_delete_topics(const Requestheader & header, const s
       //every response every starts with the topic name 
       Write_string(response, topic.name); 
       //determine this result for this topic 
-      std::int16_t error_code = NONE; 
+      std::int16_t error_code = NONE;  
+      static std::mutex persist_mutext;  
+      std::lock_guard<std::mutex>lock(persist_mutext); 
       //invalid names  must not  be passed to topic manager 
       if(!is_valid_topic_name(topic.name)){
         error_code = INVALID_TOPIC_EXCEPTION;
-      }else{
+      }else{       
+         
         //remove one in memory topic 
         const bool removed =topic_manager().remove_topic(topic.name); 
         //if erse founs no topic error code 3 
         if(!removed){
             error_code = UNKNOWN_TOPIC_OR_PARTION;
+        }else{
+         // snapshot of remaing topics 
+         const std::vector<TopicMetadata> topics = topic_manager().list_topics(); 
+         try {
+              metadata_store().save_topics(topics); 
+              error_code = NONE;
+         } catch (const std::exception &) {
+            error_code = 41;
+         }
         }
       } 
       //write the result for this topic 

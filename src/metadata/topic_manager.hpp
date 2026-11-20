@@ -14,7 +14,8 @@ class TopicManager{
       //returns a snapshot conatining all known topics 
       std::vector<TopicMetadata> list_topics()const;    
       //delete topic 
-      bool remove_topic(const std::string&name);
+      bool remove_topic(const std::string&name); 
+      void load_topics(std::vector<TopicMetadata> loades_topics);
       private: 
         //protect shared topic metadata across client thread 
         mutable std::mutex  mutext_;  

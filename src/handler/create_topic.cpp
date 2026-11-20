@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <mutex>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -11,7 +12,8 @@
 #include "metadata/topic_manager.hpp"
 #include "protocol/byte_reader.hpp" 
 #include "protocol/byte_writer.hpp"
-#include "utils/utils.hpp"
+#include "utils/utils.hpp" 
+#include "storage/metadata_store.hpp"
 namespace  {
    constexpr std::int16_t kNone = 0; 
    constexpr std::int16_t kInvalidTopic = 17; 
@@ -151,11 +153,19 @@ namespace  {
       //this is not a internal topic 
       topic.is_internal = false; 
       //store the partion  
-      topic.partitions = std::move(*partions); 
+      topic.partitions = std::move(*partions);    
+      //serialize insert plus snapshot +save so snapshot reach disk in a order
+      static std::mutex persist_mutext;  
+      std::lock_guard<std::mutex>lock(persist_mutext); 
+
       //indert automatically to avoid duplicate creation races 
       if(!topic_manager().try_and_topic(std::move(topic))){
          return KTopicAlreadyExist;
-      } 
+      }  
+      //take a snapshot of all current topics, includihg the new one 
+      const std::vector<TopicMetadata>topics = topic_manager().list_topics(); 
+      //persist the full snapshot 
+      metadata_store().save_topics(topics);
       return kNone;
    }
    
