@@ -5,10 +5,12 @@
 #include <array>
 #include <cstddef>
 #include <limits>
+#include <mutex>
 #include <optional>
 #include <stdexcept>
 #include <string>
-#include <vector>
+#include <vector> 
+#include <random>
 const APIversionInfo*find_api(std::int16_t api_key){
     //search through the supported api 
      for (const APIversionInfo&api : supported_apis()) {     
@@ -176,4 +178,17 @@ std::vector<std::byte>add_frame(const std::vector<std::byte>& payload){
        //append the complete frame 
        return frame.data();
     }  
-    
+std::array<std::byte, 16> generate_topic_uuid() {
+   static std::mutex m;
+   static std::mt19937_64 rng{std::random_device{}()};
+   std::lock_guard<std::mutex> lock(m);
+
+   std::array<std::byte, 16> id{};
+   for (std::size_t i = 0; i < 16; i += 8) {
+      std::uint64_t v = rng();
+      for (int j = 0; j < 8; ++j) id[i + j] = static_cast<std::byte>((v >> (8 * j)) & 0xFF);
+   }
+   id[6] = static_cast<std::byte>((std::to_integer<unsigned>(id[6]) & 0x0F) | 0x40); // version 4
+   id[8] = static_cast<std::byte>((std::to_integer<unsigned>(id[8]) & 0x3F) | 0x80); // variant
+   return id;
+}    
